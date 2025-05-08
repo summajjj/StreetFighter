@@ -1,0 +1,171 @@
+import pygame
+
+# Fighter class
+class Fighter():
+    def __init__(self, x, y, data, sprite_sheet, animation_steps):
+        self.size = data[0]
+        self.flip = False
+        self.animation_list = self.load_images(sprite_sheet, animation_steps)
+        self.action = 0
+        self.frame_index = 0
+        self.image = self.animation_list[self.action][self.frame_index]
+        self.rect = pygame.Rect(x, y, 80, 180)
+        self.vel_y = 0
+        self.jump = False
+        self.attacking = False
+        self.attack_type = 0
+        self.health = 100
+
+#loading images & extracting from spritesheet
+    def load_images(self, sprite_sheet, animation_steps):
+        animation_list = []
+        for y, animation in enumerate(animation_steps):
+            temp_img_list = []
+            for x in range(animation):
+                temp_img = sprite_sheet.subsurface(
+                    x * self.size, y * self.size, self.size, self.size)
+                temp_img_list.append(temp_img)
+            animation_list.append(temp_img_list)
+        return animation_list
+
+   #control movement with key pressing. wasd for left fighter, arrows for right
+    def move(self, screen_width, screen_height, surface, target):
+        SPEED = 10
+        GRAVITY = 2
+        dx = 0
+        dy = 0
+
+
+        # can only perform other actions if not currently attacking
+        if not self.attacking:
+            #movement
+            key = pygame.key.get_pressed()
+            if key[pygame.K_a]:
+                dx = -SPEED
+            if key[pygame.K_d]:
+                dx = SPEED
+            #jump
+            if key[pygame.K_w] and not self.jump:
+                self.vel_y = -30
+                self.jump = True
+            #attack
+            if key[pygame.K_r] or key[pygame.K_t]:
+                self.attack(surface, target)
+                #determine attack type
+                if key[pygame.K_r]:
+                    self.attack_type = 1
+                if key[pygame.K_t]:
+                    self.attack_type = 2
+
+       # apply gravity 
+        self.vel_y += GRAVITY
+        dy += self.vel_y
+
+        # ensure playerstay on screen, note 110 is based on tutorial, ours will
+        # change with background
+        if self.rect.left + dx < 0:
+            dx = -self.rect.left
+        if self.rect.right + dx > screen_width:
+            dx = screen_width - self.rect.right
+        if self.rect.bottom + dy > screen_height - 110:
+            self.vel_y = 0
+            self.jump = False
+            dy = screen_height - 110 - self.rect.bottom
+        # ensure players face each other
+        if target.rect.centerx > self.rect.centerx:
+            self.flip = False
+        else:
+            self.flip = True
+    
+        # update fighter position
+        self.rect.x += dx
+        self.rect.y += dy
+
+    # this is something we can vary between different characters if we give more than two options!
+    def attack(self, surface, target):
+        self.attacking = True
+        attack_offset = -2 * self.rect.width if self.flip else 0
+        attacking_rect = pygame.Rect(
+            self.rect.centerx + attack_offset, self.rect.y,
+            2 * self.rect.width, self.rect.height
+        )
+
+        if attacking_rect.colliderect(target.rect):
+            target.health -= 10
+
+        pygame.draw.rect(surface, (0, 255, 0), attacking_rect)
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, (255, 0, 0), self.rect)
+        surface.blit(self.image, (self.rect.x, self.rect.y))
+
+## ACTUAL GAME SET UP STARTS HERE
+
+pygame.init()
+
+# game window initialization
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 600
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Fighter Demo")
+
+# set frame rate
+clock = pygame.time.Clock()
+FPS = 60
+
+# define colors
+YELLOW = (255, 255, 0)
+RED = (255, 0, 0)
+WHITE = (255, 255, 255)
+
+# load assets (make sure this is right)
+bg_image = pygame.image.load('Assets/City_Street.png').convert_alpha()
+warrior_sheet = pygame.image.load('Assets/cat_fighter_sprite1.png').convert_alpha()
+ranger_sheet = pygame.image.load('Assets/cat_fighter_sprite2.png').convert_alpha()
+
+# define sprite sizes and animation steps
+warrior_data = [50]
+ranger_data = [50]
+warrior_animation_steps = [10, 4, 1, 7, 7, 3, 7]
+ranger_animation_steps = [8, 8, 1, 8, 8, 3, 7]
+
+# draw background
+def draw_bg():
+    scaled_bg = pygame.transform.scale(bg_image, (SCREEN_WIDTH, SCREEN_HEIGHT))
+    screen.blit(scaled_bg, (0, 0))
+
+# draw health bar
+def draw_health_bar(health, x, y):
+    ratio = health / 100
+    pygame.draw.rect(screen, WHITE, (x - 2, y - 2, 402, 32))   # outline
+    pygame.draw.rect(screen, RED, (x, y, 400, 30))             # red background
+    pygame.draw.rect(screen, YELLOW, (x, y, 400 * ratio, 30))  # yellow fill
+
+# create fighters
+fighter_left = Fighter(200, 310, warrior_data, warrior_sheet, warrior_animation_steps)
+fighter_right = Fighter(700, 310, ranger_data, ranger_sheet, ranger_animation_steps)
+
+# main loop
+run = True
+while run:
+    clock.tick(FPS)
+    draw_bg()
+
+    # draw health bars
+    draw_health_bar(fighter_left.health, 20, 20)
+    draw_health_bar(fighter_right.health, 580, 20)
+
+    # update and draw fighters
+    fighter_left.move(SCREEN_WIDTH, SCREEN_HEIGHT, screen, fighter_right)
+    fighter_right.move(SCREEN_WIDTH, SCREEN_HEIGHT, screen, fighter_left)
+    fighter_left.draw(screen)
+    fighter_right.draw(screen)
+
+    # quit game
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            run = False
+
+    pygame.display.update()
+
+pygame.quit()
