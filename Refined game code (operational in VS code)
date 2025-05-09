@@ -1,8 +1,23 @@
 import pygame
+import random
 
-# Fighter class
+# collision with hit probability
+def check_collision(attacking_rect, target_rect, hit_chance=1.0):
+    """Returns True if there's a hit based on rect overlap and probability."""
+    if attacking_rect.colliderect(target_rect):
+        return random.random() <= hit_chance
+    return False
+
+# adding text
+def draw_text(text, size, x, y, color=(255, 0, 0)):
+    font = pygame.font.SysFont("Arial", size, bold=True)
+    surface = font.render(text, True, color)
+    rect = surface.get_rect(center=(x, y))
+    screen.blit(surface, rect)
+
+# fighter class
 class Fighter():
-    def __init__(self, x, y, data, sprite_sheet, animation_steps):
+    def __init__(self, x, y, data, sprite_sheet, animation_steps, controls):
         self.size = data[0]
         self.flip = False
         self.animation_list = self.load_images(sprite_sheet, animation_steps)
@@ -15,8 +30,16 @@ class Fighter():
         self.attacking = False
         self.attack_type = 0
         self.health = 100
+        self.controls = controls
 
-#loading images & extracting from spritesheet
+        # combat features
+        self.attack_cooldown = 30
+        self.attack_cooldown_counter = 0
+        self.blocking=False
+
+
+#loading images & extracting from spritesheet 
+  ## animations will be done if time allows, but this code sets up for potential animation
     def load_images(self, sprite_sheet, animation_steps):
         animation_list = []
         for y, animation in enumerate(animation_steps):
@@ -24,39 +47,52 @@ class Fighter():
             for x in range(animation):
                 temp_img = sprite_sheet.subsurface(
                     x * self.size, y * self.size, self.size, self.size)
-                temp_img_list.append(temp_img)
+                # Scale the image
+                scaled_img = pygame.transform.scale(temp_img, (self.size * 4, self.size * 4))
+                temp_img_list.append(scaled_img)
             animation_list.append(temp_img_list)
         return animation_list
 
-   #control movement with key pressing. wasd for left fighter, arrows for right
+   # control movement with key pressing. wasd for left fighter, arrows for right
     def move(self, screen_width, screen_height, surface, target):
         SPEED = 10
         GRAVITY = 2
         dx = 0
         dy = 0
 
+        # reduce cooldown if active  
+        if self.attack_cooldown_counter>0:
+            self.attack_cooldown_counter-=1
+        
+        key = pygame.key.get_pressed()
+
+        # block detection
+        if self.controls.get('block') and key[self.controls['block']]:
+            self.blocking = True
+        else:
+            self.blocking = False
+
 
         # can only perform other actions if not currently attacking
         if not self.attacking:
             #movement
             key = pygame.key.get_pressed()
-            if key[pygame.K_a]:
+            if key[self.controls['left']]:
                 dx = -SPEED
-            if key[pygame.K_d]:
+            if key[self.controls['right']]:
                 dx = SPEED
-            #jump
-            if key[pygame.K_w] and not self.jump:
+            if key[self.controls['jump']] and not self.jump:
                 self.vel_y = -30
                 self.jump = True
-            #attack
-            if key[pygame.K_r] or key[pygame.K_t]:
+            #only attack if not attacking and cooldown is 0
+            if (key[self.controls['attack1']] or key[self.controls['attack2']]) and self.attack_cooldown_counter == 0:
                 self.attack(surface, target)
-                #determine attack type
-                if key[pygame.K_r]:
+                if key[self.controls['attack1']]:
                     self.attack_type = 1
-                if key[pygame.K_t]:
+                if key[self.controls['attack2']]:
                     self.attack_type = 2
-
+    
+    
        # apply gravity 
         self.vel_y += GRAVITY
         dy += self.vel_y
@@ -71,6 +107,7 @@ class Fighter():
             self.vel_y = 0
             self.jump = False
             dy = screen_height - 110 - self.rect.bottom
+        
         # ensure players face each other
         if target.rect.centerx > self.rect.centerx:
             self.flip = False
@@ -90,14 +127,34 @@ class Fighter():
             2 * self.rect.width, self.rect.height
         )
 
-        if attacking_rect.colliderect(target.rect):
-            target.health -= 10
+        # set different hit chances for each attack type
+        hit_chance = 0.9 if self.attack_type == 1 else 0.6
+        if check_collision(attacking_rect, target.rect, hit_chance=hit_chance):
+            target.take_damage(10)
 
         pygame.draw.rect(surface, (0, 255, 0), attacking_rect)
+        self.attack_cooldown_counter=self.attack_cooldown
+        self.attacking=False
+    
+    def take_damage(self, amount):
+        if self.blocking:
+            amount = 0  # no damage if blocking
+        self.health -= amount
+        if self.health < 0:
+            self.health = 0
 
     def draw(self, surface):
-        pygame.draw.rect(surface, (255, 0, 0), self.rect)
-        surface.blit(self.image, (self.rect.x, self.rect.y))
+        img = pygame.transform.flip(self.image, self.flip, False)
+        
+        # If blocking, apply a blue tint overlay
+        if self.blocking:
+        # Create a copy of the image and tint it blue
+            blue_overlay = img.copy()
+            blue_overlay.fill((0, 0, 255, 100), special_flags=pygame.BLEND_RGBA_ADD)
+            surface.blit(blue_overlay, (self.rect.x, self.rect.y))
+        else:
+            surface.blit(img, (self.rect.x, self.rect.y))
+
 
 ## ACTUAL GAME SET UP STARTS HERE
 
@@ -141,9 +198,32 @@ def draw_health_bar(health, x, y):
     pygame.draw.rect(screen, RED, (x, y, 400, 30))             # red background
     pygame.draw.rect(screen, YELLOW, (x, y, 400 * ratio, 30))  # yellow fill
 
+# controls for each fighter
+controls_left = {
+    'left': pygame.K_a,
+    'right': pygame.K_d,
+    'jump': pygame.K_w,
+    'attack1': pygame.K_r,
+    'attack2': pygame.K_t,
+    'block': pygame.K_s,
+    }
+
+controls_right = {
+    'left': pygame.K_LEFT,
+    'right': pygame.K_RIGHT,
+    'jump': pygame.K_UP,
+    'attack1': pygame.K_1,
+    'attack2': pygame.K_2,
+    'block': pygame.K_DOWN
+    }
+
 # create fighters
-fighter_left = Fighter(200, 310, warrior_data, warrior_sheet, warrior_animation_steps)
-fighter_right = Fighter(700, 310, ranger_data, ranger_sheet, ranger_animation_steps)
+fighter_left = Fighter(200, 310, warrior_data, warrior_sheet, warrior_animation_steps, controls_left)
+fighter_right = Fighter(700, 310, ranger_data, ranger_sheet, ranger_animation_steps, controls_right)
+
+# game state
+game_over = False
+winner_text = ""
 
 # main loop
 run = True
@@ -154,17 +234,37 @@ while run:
     # draw health bars
     draw_health_bar(fighter_left.health, 20, 20)
     draw_health_bar(fighter_right.health, 580, 20)
+     
+    if not game_over:
+      fighter_left.move(SCREEN_WIDTH, SCREEN_HEIGHT, screen, fighter_right)
+      fighter_right.move(SCREEN_WIDTH, SCREEN_HEIGHT, screen, fighter_left)
 
-    # update and draw fighters
-    fighter_left.move(SCREEN_WIDTH, SCREEN_HEIGHT, screen, fighter_right)
-    fighter_right.move(SCREEN_WIDTH, SCREEN_HEIGHT, screen, fighter_left)
+    # check for KO
+    if fighter_left.health <= 0:
+        game_over = True
+        winner_text = "Player 2 Wins!"
+    elif fighter_right.health <= 0:
+        game_over = True
+        winner_text = "Player 1 Wins!"
+
+    # draw fighters (always, even when KO'd)
     fighter_left.draw(screen)
     fighter_right.draw(screen)
+
+    if game_over:
+        draw_text(winner_text, 60, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+        draw_text("Press Enter to Restart", 30, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 60)
 
     # quit game
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             run = False
+        if event.type == pygame.KEYDOWN and game_over:
+            if event.key == pygame.K_RETURN:
+                fighter_left.health=100
+                fighter_right.health=100
+                game_over=False
+                winner_text=""
 
     pygame.display.update()
 
